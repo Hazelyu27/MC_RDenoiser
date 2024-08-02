@@ -6,9 +6,9 @@ We introduces a novel **real-time** neural denoising technique based on **noisy 
 
 Our network framework is shown as follows.
 
-![network](images\network.jpg)
+<img src="images\network.jpg" alt="dog" />
 
-![network_details](images\network_details.png)
+<img src="images\network_details.png" alt="dog" />
 
 ### Evaluation
 
