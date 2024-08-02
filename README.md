@@ -6,15 +6,15 @@ We introduces a novel **real-time** neural denoising technique based on **noisy 
 
 Our network framework is shown as follows.
 
-![network](F:\0727\MSFKP\论文图\network.jpg)
+![network](images\network.jpg)
 
-![network_details](F:\0727\MSFKP\论文图\network_details.png)
+![network_details](images\network_details.png)
 
 ### Evaluation
 
 Our model show good performance on Volumatic data, especially in translucent material.
 
-<img src="F:\0727\MSFKP\实验图\dog.png" alt="dog" style="zoom:50%;" />
+<img src="images\dog.png" alt="dog" style="zoom:50%;" />
 
 ### Train and test
 
