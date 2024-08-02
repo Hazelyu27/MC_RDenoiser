@@ -5,10 +5,8 @@ import losses
 import torch.backends.cudnn as cudnn
 import models as models
 import torch.optim as optim
-from glob import glob
-import albumentations as albu
-from sklearn.model_selection import train_test_split
-from datasets import DataSetTrain
+from tools.prepare_data import *
+from datasets import DataSetTrain,DataSetVal
 import torch
 from collections import OrderedDict
 from tools.utils import AverageMeter
@@ -72,11 +70,12 @@ def train(train_loader, network, criterion, optimizer):
         torch.nn.utils.clip_grad_norm_(network.parameters(), 1)
 
         optimizer.step()
-        avg_meters['loss'].update(loss.item(), sdf.size(0))
 
         postfix = OrderedDict([('loss', avg_meters['loss'].avg),])
         pbar.set_postfix(postfix)
         pbar.update(1)
+        # 释放未使用的内存
+        # torch.cuda.empty_cache()
 
     pbar.close()
 
@@ -84,8 +83,10 @@ def train(train_loader, network, criterion, optimizer):
 
 
 
-
+# val里没有loss回传
 def validate(val_loader, network, criterion,use_val):
+    if use_val == False:
+        return
     flag = 1
     avg_meters = {'loss': AverageMeter(),}
     network.eval()
@@ -117,21 +118,8 @@ def validate(val_loader, network, criterion,use_val):
                 for i in range(output.shape[0]):
                     if np.sum(target[i]) == 0.0:
                         continue
-                    curr_target = target[i].transpose((1, 2, 0))
-                    curr_out = output[i].transpose((1, 2, 0))
-
-                    # curr_input = input_[i].transpose((1, 2, 0))
-
-                    # input_ = prepare(curr_input)
-                    curr_out = prepare(curr_out)
-                    curr_target = prepare(curr_target)
-                    # input,ref,output全部进行颜色映射
-
-                    # output = np.concatenate((input_, curr_target), axis=1)
-                    curr_target = np.concatenate((curr_out, curr_target), axis=1)
-                    # curr_target = cv2.cvtColor(curr_target * 255, cv2.COLOR_RGB2BGR)
-                    curr_target = curr_target * 255
-                    cv2.imwrite("./log/output{}.png".format(i), curr_target)
+                    writeimage(output[i],"./log/output.png")
+                    writeimage(target[i], "./log/ref.png")
 
             avg_meters['loss'].update(loss.item(),sdf.size(0))
 
@@ -145,7 +133,7 @@ def validate(val_loader, network, criterion,use_val):
     return OrderedDict([('loss', avg_meters['loss'].avg),])
 
 def main():
-
+    save_path = 'D:\\DataSets\\models\\RDnet\\'
     # -------- parameter ---------
     use_val = True
     config = vars(parse_args())
@@ -154,16 +142,18 @@ def main():
     for key in config:
         print('%s: %s' % (key, config[key]))
     print('-' * 20)
-    os.makedirs('models_sdf/%s' % config['name'], exist_ok=True)
-    with open('models_sdf/%s/config.yml' % config['name'], 'w') as f:
+    os.makedirs('{}{}'.format(save_path, config['name']), exist_ok=True)
+
+    with open('{}{}//config.yml'.format(save_path,config['name']), 'w') as f:
         yaml.dump(config, f)
 
     # -------- load model --------
-    criterion = losses.__dict__["MS_SSIM_L1_LOSS"]().cuda()
+    criterion = losses.__dict__["CombinedLoss"]().cuda()
     cudnn.benchmark = True
     # 创建模型实例
-
-    model = models.__dict__["Teacher_Model"]()
+    device = torch.device("cuda")
+    # model = torch.load('{}{}//model.pt'.format(save_path, config['testname']), map_location=device)
+    model = models.__dict__["Single_Model"]()
     # student_net_sdf.load_state_dict(torch.load('models_sdf/1-manix-2spp/model.pth'))
     model = model.cuda()
     # params = filter(lambda p: p.requires_grad, model.parameters())
@@ -177,43 +167,36 @@ def main():
 
     # 加入一个学习率调度器
     # patience：连续25轮没有改善就降低学习率 cooldown继续检查间隔的轮数，factor下调百分比 minlr最低学习率
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=25, cooldown=10, factor=0.5, min_lr=1e-5,
-                                                           threshold=1e-5)
-
-    #
-
-    # optimizer_sdf = optim.Adagrad(params_sdf, lr=1e-4)
-
+    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=25, cooldown=10, factor=0.5, min_lr=1e-5,
+    #                                                        threshold=1e-5)
 
     # -------- load dataset --------
 
-    img_ids = glob(os.path.join(config['datapath'],config['dataset'],config['noisetype'],"*.exr"))
-    img_ids = [os.path.splitext(os.path.basename(p))[0] for p in img_ids]
+    # img_ids = glob(os.path.join(config['datapath'],config['dataset'],config['noisetype'],"*.exr"))
+    # img_ids = [os.path.splitext(os.path.basename(p))[0] for p in img_ids]
 
     # random_state每次设置同样的值时，train和val的数据集是一样的！不要设置成一样
-    train_img_ids, val_img_ids = train_test_split(img_ids, test_size=0.2)
-    train_transform = albu.Compose([
-        # adjust w and h
-        # albu.Resize(height=2048, width=2048, interpolation=1),
-      albu.CenterCrop(1024,1024),
-        # albu.Resize(config['input_h'], config['input_w'])
-    ])
-    val_transform = albu.Compose([
-       # albu.Resize(height=2048, width=2048, interpolation=1),
-        albu.CenterCrop(1024, 1024),
-        # albu.Resize(config['input_h'], config['input_w']),
-    ])
+    # train_img_ids, val_img_ids = train_test_split(img_ids, test_size=0.2)
+    # train_transform = albu.Compose([
+    #     # adjust w and h
+    #     albu.Resize(height=2048, width=2048, interpolation=1),
+    #   albu.CenterCrop(1024,1024),
+    # ])
+    # val_transform = albu.Compose([
+    #    # albu.Resize(height=2048, width=2048, interpolation=1),
+    #     albu.CenterCrop(1024, 1024),
+    #     # albu.Resize(config['input_h'], config['input_w']),
+    # ])
     train_dataset = DataSetTrain(
-        img_ids=train_img_ids,
-        img_dir=os.path.join(config['datapath'], config['dataset'], config['noisetype']),
-        ref_dir=os.path.join(config['datapath'], config['dataset'], config['reftype']),
-        transform=train_transform
+        img_dir=os.path.join(config['trainpath'], config['dataset'], config['noisetype']),
+        ref_dir=os.path.join(config['trainpath'], config['dataset'], config['reftype']),
+        # transform=train_transform
     )
-    val_dataset = DataSetTrain(
-        img_ids=val_img_ids,
-        img_dir=os.path.join(config['datapath'],config['dataset'],config['noisetype']),
-        ref_dir=os.path.join(config['datapath'],config['dataset'],config['reftype']),
-        transform=val_transform
+    val_dataset = DataSetVal(
+
+        img_dir=os.path.join(config['valpath'],config['dataset'],config['noisetype']),
+        ref_dir=os.path.join(config['valpath'],config['dataset'],config['reftype']),
+        # transform=val_transform
     )
 
     def seed_fn(id):
@@ -258,17 +241,23 @@ def main():
         # train for one epoch
         train_log = train(train_loader, parallel_model, criterion, optimizer)
         val_log = validate(val_loader, parallel_model,  criterion, use_val)
-        # scheduler.step(eval_loss)
-        # scheduler.step(eval_loss)
+
         print('loss %.4f '% (train_log['loss']))
         log['epoch'].append(epoch)
         log['lr'].append(config['lr'])
         log['loss'].append(train_log['loss'])
         log['val_loss'].append(val_log['loss'])
-        pd.DataFrame(log).to_csv('models_sdf/%s/log.csv' % config['name'], index=False)
+        pd.DataFrame(log).to_csv('{}{}\\log.csv'.format(save_path,config['name']), index=False)
         if val_log['loss'] < min_loss:
-            torch.save(model.state_dict(), 'models_sdf/%s/model.pth' % config['name'])
             min_loss = val_log['loss']
+            checkpoint = {
+                'best_loss': min_loss,
+                'weights': model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+            }
+            torch.save(model,'{}{}\\model.pt'.format(save_path,config['name']))
+            # torch.save(model.state_dict(), 'models_sdf/%s/model.pth' % config['name'])
+
             print("=> saved best model")
         torch.cuda.empty_cache()
 

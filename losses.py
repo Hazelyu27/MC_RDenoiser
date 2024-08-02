@@ -152,6 +152,21 @@ class RAEloss_temp(nn.Module):
 
 
         return rae1
+
+class L1SpecLoss(torch.nn.Module):
+    def __init__(self):
+        super(L1SpecLoss, self).__init__()
+        self.kernel_mean = torch.ones((3, 1, 11, 11)) / (11**2)
+
+    def forward(self, img1, img2):
+        # L1 loss
+        L1 = F.l1_loss(img1, img2)
+        # spec loss
+        if img1.is_cuda: self.kernel_mean = self.kernel_mean.cuda()
+        lm1 = F.conv2d(img1, self.kernel_mean, padding=11//2, groups=3)
+        lm2 = F.conv2d(img2, self.kernel_mean, padding=11//2, groups=3)
+        Ls = F.l1_loss(torch.clamp(img1 - lm1, 0, 1), torch.clamp(img2 - lm2, 0, 1))
+        return 0.8 * L1 + 0.2 * Ls
 class MS_SSIM_L1_LOSS(nn.Module):
     # Have to use cuda, otherwise the speed is too slow.
     def __init__(self, gaussian_sigmas=[0.5, 1.0, 2.0, 4.0, 8.0],
@@ -325,3 +340,83 @@ class MS_SSIM_L1_LOSS(nn.Module):
 #         loss_mix = self.compensation*loss_mix
 #
 #         return loss_mix.mean()
+
+class L1HFENLoss(torch.nn.Module):
+    def __init__(self):
+        super(L1HFENLoss, self).__init__()
+        self.kernel = torch.Tensor([[0, 0, 1, 0, 0], [0, 1, 2, 1, 0], [1, 2, -16, 2, 1], [0, 1, 2, 1, 0], [0, 0, 1, 0, 0]]).repeat((3, 1, 1, 1))
+
+    def forward(self, img1, img2):
+        # L1 loss
+        L1 = F.l1_loss(img1, img2)
+        # HFEN loss
+        if img1.is_cuda: self.kernel = self.kernel.cuda()
+        log1 = F.conv2d(img1, self.kernel, padding=2, groups=3)
+        log2 = F.conv2d(img2, self.kernel, padding=2, groups=3)
+        Lhf = F.l1_loss(log1, log2)
+        return 0.8 * L1 + 0.2 * Lhf
+
+
+class L1HFENSpecLoss(L1HFENLoss):
+    def __init__(self):
+        super(L1HFENSpecLoss, self).__init__()
+        self.kernel_mean = torch.ones((3, 1, 11, 11)) / (11**2)
+
+    def forward(self, img1, img2):
+        # L1 loss
+        L1 = F.l1_loss(img1, img2)
+        # HFEN loss
+        if img1.is_cuda: self.kernel = self.kernel.cuda()
+        log1 = F.conv2d(img1, self.kernel, padding=2, groups=3)
+        log2 = F.conv2d(img2, self.kernel, padding=2, groups=3)
+        Lhf = F.l1_loss(log1, log2)
+        # spec loss
+        if img1.is_cuda: self.kernel_mean = self.kernel_mean.cuda()
+        lm1 = F.conv2d(img1, self.kernel_mean, padding=11//2, groups=3)
+        lm2 = F.conv2d(img2, self.kernel_mean, padding=11//2, groups=3)
+        Ls = F.l1_loss(torch.clamp(img1 - lm1, 0, 1), torch.clamp(img2 - lm2, 0, 1))
+        return 0.8 * L1 + 0.1 * Lhf + 0.1 * Ls
+
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class CombinedLoss(nn.Module):
+    def __init__(self, grad_weight=0.5, mse_weight=0.5, loss_type='L1'):
+        super(CombinedLoss, self).__init__()
+        # 定义Sobel算子核，用于计算x和y方向的梯度，每个核复制对应输入通道数
+        self.kernel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32).view(1, 1, 3, 3).repeat(3, 1, 1, 1)
+        self.kernel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=torch.float32).view(1, 1, 3, 3).repeat(3, 1, 1, 1)
+        self.grad_weight = grad_weight
+        self.mse_weight = mse_weight
+        self.loss_type = loss_type
+
+    def forward(self, image, ref):
+        # 确保输入是浮点类型，并在GPU上（如果可用）
+        device = image.device  # 获取输入图像所在的设备
+        self.kernel_x = self.kernel_x.to(device)
+        self.kernel_y = self.kernel_y.to(device)
+
+        # 计算图像的梯度
+        grad_x_image = F.conv2d(image, self.kernel_x, padding=1, groups=3)
+        grad_y_image = F.conv2d(image, self.kernel_y, padding=1, groups=3)
+
+        grad_x_ref = F.conv2d(ref, self.kernel_x, padding=1, groups=3)
+        grad_y_ref = F.conv2d(ref, self.kernel_y, padding=1, groups=3)
+
+        # 计算梯度损失
+        if self.loss_type == 'L1':
+            grad_loss = F.l1_loss(grad_x_image, grad_x_ref) + F.l1_loss(grad_y_image, grad_y_ref)
+        elif self.loss_type == 'L2':
+            grad_loss = F.mse_loss(grad_x_image, grad_x_ref) + F.mse_loss(grad_y_image, grad_y_ref)
+        else:
+            raise ValueError("Unsupported loss type. Choose 'L1' or 'L2'.")
+
+        # 计算MSE损失
+        mse_loss = F.mse_loss(image, ref)
+
+        # 计算总损失
+        total_loss = self.grad_weight * grad_loss + self.mse_weight * mse_loss
+
+        return total_loss

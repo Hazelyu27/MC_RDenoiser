@@ -3,14 +3,6 @@ import cv2
 from matplotlib import cm
 from matplotlib.colors import ListedColormap, LinearSegmentedColormap
 import matplotlib.pyplot as plt
-def prepare(img):
-
-    exposure = 0.3
-    invExposure = 1.0 / (1.0 - exposure)
-    gamma = 2.2
-    img = 1.0 - np.exp(-img * invExposure)
-
-    return img
 
 
 def new_data():
@@ -82,11 +74,11 @@ def plot_examples(data,colormaps):
 
 if __name__=="__main__":
     # new_data()
-    filename1 = "D://DataSets//volumndatasets//colonix-1-test//256spp//img-30.exr"
-    filename2 = "D://DataSets//volumndatasets//colonix-1-test//5spp//img-30.exr"
+    filename1 = "D://DataSets//volumndatasets//0614//train//1-manix//8spp//img-0.exr"
+    filename2 = "D://DataSets//volumndatasets//0614//train//1-manix//512spp//img-0.exr"
     illu1 = get_sdf(filename1)
     illu2 = get_sdf(filename2)
-    result = draw_errormap(illu1,illu2)
+    result = draw_errormap(illu1, illu2)
     print(result.max())
     print(result.min())
 
@@ -96,12 +88,13 @@ if __name__=="__main__":
 
     newcmp = ListedColormap(newcolors)
 
-    plot_examples(result,[viridis, newcmp])
+    plot_examples(result, [viridis, newcmp])
 
     print(result.max())
     print(result.min())
     scaled_array = (result * 255).astype(np.uint8)
     cv2.imwrite("./volumn_data/{}.png".format("error"), scaled_array)
+
     # filename = 'D://DataSets//GBuffers.exr'
     # # filename = "D://DataSets//volumndatasets//manix-1//15spp//img-30.exr"
     # # illu = get_illu_noise(filename)
